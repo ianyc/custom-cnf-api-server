@@ -1,10 +1,12 @@
-// 載入環境變數
-require('dotenv').config(); 
-const express = require('express');
-const mongoose = require('mongoose');
+import 'dotenv/config'; // 載入環境變數
+import express from 'express';
+import mongoose from 'mongoose';
+import managementRoutes from './routes/managementRoutes.js';
+import crudRoutes from './routes/crudRoutes.js';
+
 
 // 取得環境變數
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT;
 const MONGO_URI = process.env.MONGO_URI;
 
 // 創建 Express 應用程式實例
@@ -29,9 +31,11 @@ const connectDB = async () => {
 connectDB();
 
 // --- 路由 (Routes) 設置 ---
-// 這裡將會掛載您的 API 路由，例如：
-const itemRoutes = require('./routes/itemRoutes');
-app.use('/api/items', itemRoutes); // 所有 /api/items 開頭的請求都導向 itemRoutes
+// 掛載 API 路由
+// Management Route (例如 /api/inventory/create)
+app.use('/api', managementRoutes);
+// CRUD Routes (例如 /api/inventory, /api/inventory/123)
+app.use('/api', crudRoutes);
 
 // 根路由測試
 app.get('/', (req, res) => {
