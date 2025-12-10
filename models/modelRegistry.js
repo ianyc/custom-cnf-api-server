@@ -1,6 +1,17 @@
 import mongoose from 'mongoose';
 
 
+// 定義一個專門用於儲存其他 Model Schema 的結構
+const SchemaRegistrySchema = new mongoose.Schema({
+    collectionName: { type: String, required: true, unique: true }, // 儲存集合名稱 (e.g., 'users')
+    schemaDefinition: { type: mongoose.Schema.Types.Mixed, default: {} }, // 儲存使用者提供的 JSON Schema 定義
+    isStrict: { type: Boolean, default: true },
+    modelName: { type: String, required: true, unique: true } // Mongoose 內部使用的 Model 名稱 (e.g., 'User')
+}, { collection: '_schema_registry' }); // 專門的集合名稱
+
+// 建立 Schema 註冊表 Model
+const SchemaRegistry = mongoose.model('SchemaRegistry', SchemaRegistrySchema);
+
 // 輔助函數：將 Collection 名稱轉為 Mongoose Model 名稱
 // (例如: 'myusers' -> 'Myuser')
 const getModelName = (collectionName) => {
@@ -18,7 +29,7 @@ const getModelName = (collectionName) => {
  * @param {boolean} isStrict - 是否啟用嚴格模式 (strict: true/false)
  * @returns {mongoose.Model} 新建立的 Model
  */
-export const createModel = (collectionName, schemaDefinition = {}, isStrict = true) => {
+export const createModel = async(collectionName, schemaDefinition = {}, isStrict = true) => {
     const modelName = getModelName(collectionName);
 
     // 檢查 Model 是否已存在 (Mongoose 的快取)
@@ -35,7 +46,27 @@ export const createModel = (collectionName, schemaDefinition = {}, isStrict = tr
     });
 
     // 建立並註冊新的 Model
-    return mongoose.model(modelName, newSchema);
+    const newModel = mongoose.model(modelName, newSchema);
+
+    // 將 Model 定義持久化到 _schema_registry 集合
+    try {
+        await SchemaRegistry.create({
+            collectionName,
+            schemaDefinition,
+            isStrict,
+            modelName
+        });
+        console.log(`[Schema Registry] Schema for ${collectionName} persisted.`);
+    } catch (e) {
+        // 如果遇到重複鍵錯誤 (11000)，表示已存在於 DB，只需在記憶體中建立即可
+        if (e.code === 11000) { 
+             console.warn(`[Schema Registry] ${collectionName} already persisted in DB. Model recreated in memory.`);
+        } else {
+             throw e;
+        }
+    }
+
+    return newModel;
 };
 
 /**
@@ -47,3 +78,32 @@ export const getModel = (collectionName) => {
     const modelName = getModelName(collectionName);
     return mongoose.models[modelName] || null;
 };
+
+/**
+ * 伺服器啟動時，從 DB 讀取所有註冊的 Schema 並重新建立 Model
+ */
+export const loadAllModels = async () => {
+    try {
+        // 讀取所有已持久化的 Schema 定義
+        const registeredSchemas = await SchemaRegistry.find({});
+        console.log(`[Schema Loader] Found ${registeredSchemas.length} registered schemas in DB.`);
+
+        for (const entry of registeredSchemas) {
+            // 使用儲存的定義重新建立 Mongoose Schema
+            const schemaOptions = {
+                timestamps: true,
+                collection: entry.collectionName,
+                strict: entry.isStrict,
+                strictQuery: false,
+            };
+            const customSchema = new mongoose.Schema(entry.schemaDefinition, schemaOptions);
+            
+            // 重新註冊 Model 到 mongoose.models
+            mongoose.model(entry.modelName, customSchema);
+            console.log(`[Schema Loader] Model '${entry.collectionName}' reloaded successfully.`);
+        }
+    } catch (error) {
+        console.error('❌ FATAL: Failed to load models from Schema Registry:', error.message);
+        // 如果這裡失敗，通常是 SchemaRegistry Model 本身定義有問題
+    }
+}

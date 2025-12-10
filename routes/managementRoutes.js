@@ -5,7 +5,7 @@ const managementRoutes = express.Router();
 
 // 建立Collection
 // POST /api/:collectionName/create
-managementRoutes.post('/:collectionName/create', (req, res) => {
+managementRoutes.post('/:collectionName/create', async(req, res) => {
     const { collectionName } = req.params;
     
     // 從 Query String 取得 strict 參數，預設為 true (嚴格)
