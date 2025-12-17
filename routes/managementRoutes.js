@@ -1,5 +1,5 @@
 import express from 'express';
-import { createModel } from '../models/modelRegistry.js';
+import { createModel, deleteModel } from '../models/modelRegistry.js';
 
 const managementRoutes = express.Router();
 
@@ -30,6 +30,30 @@ managementRoutes.post('/:collectionName/create', async(req, res) => {
         }
         res.status(500).json({ message: `建立 Model 失敗: ${error.message}` });
     }
+});
+
+// 刪除Collection
+// DELETE /api/:collectionName/delete
+managementRoutes.delete('/:collectionName/delete', async (req, res) => {
+	const { collectionName } = req.params;
+
+	if (collectionName.length < 3) {
+		return res.status(400).json({ message: "Collection名稱過短。" });
+	}
+
+	try {
+		await deleteModel(collectionName);
+		res.status(200).json({
+			message: `Collection '${collectionName}' 已刪除。`
+		});
+	} catch (error) {
+		const msg = error && error.message ? error.message : '';
+		// 若 model 不存在，回 404；其他錯誤回 500
+		if (msg.includes('not found') || msg.includes('does not exist') || msg.includes('not exists') || msg.includes('不存在')) {
+			return res.status(404).json({ message: msg || `Collection '${collectionName}' 未找到。` });
+		}
+		res.status(500).json({ message: `刪除 Collection 失敗: ${msg}` });
+	}
 });
 
 export default managementRoutes;

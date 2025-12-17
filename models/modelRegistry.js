@@ -24,6 +24,16 @@ const getModelName = (collectionName) => {
 };
 
 /**
+ * 取得一個已註冊的 Mongoose Model
+ * @param {string} collectionName - 集合名稱
+ * @returns {mongoose.Model | null} Model 或 null
+ */
+export const getModel = (collectionName) => {
+    const modelName = getModelName(collectionName);
+    return mongoose.models[modelName] || null;
+};
+
+/**
  * 創建一個新的 Mongoose Model
  * @param {string} collectionName - 集合名稱
  * @param {boolean} isStrict - 是否啟用嚴格模式 (strict: true/false)
@@ -70,14 +80,52 @@ export const createModel = async(collectionName, schemaDefinition = {}, isStrict
 };
 
 /**
- * 取得一個已註冊的 Mongoose Model
+ * 刪除 Model
  * @param {string} collectionName - 集合名稱
- * @returns {mongoose.Model | null} Model 或 null
  */
-export const getModel = (collectionName) => {
+export const deleteModel = async(collectionName) => {
     const modelName = getModelName(collectionName);
-    return mongoose.models[modelName] || null;
-};
+
+    try {
+        // Remove model from mongoose cache (if present)
+        if (typeof mongoose.modelNames === 'function' && mongoose.modelNames().includes(modelName)) {
+            if (typeof mongoose.deleteModel === 'function') {
+                mongoose.deleteModel(modelName);
+            } else {
+                delete mongoose.connection.models[modelName];
+                delete mongoose.models[modelName];
+            }
+            console.log(`[Schema Registry] Collection '${modelName}' removed from mongoose cache.`);
+        }
+
+        // Drop the MongoDB collection if it exists
+        const db = mongoose.connection && mongoose.connection.db;
+        if (db) {
+            const existing = await db.listCollections({ name: collectionName }).toArray();
+            if (existing.length > 0) {
+                await db.dropCollection(collectionName);
+                console.log(`[Schema Registry] Collection '${collectionName}' dropped from DB.`);
+            } else {
+                console.warn(`[Schema Registry] Collection '${collectionName}' does not exist in DB.`);
+            }
+        } else {
+            console.warn('[Schema Registry] No DB connection available to drop collection.');
+        }
+
+        // Remove the schema registry entry
+        const res = await SchemaRegistry.deleteOne({ collectionName });
+        if (res && res.deletedCount) {
+            console.log(`[Schema Registry] Registry entry for '${collectionName}' removed.`);
+        } else {
+            console.warn(`[Schema Registry] No registry entry found for '${collectionName}'.`);
+        }
+
+        return true;
+    } catch (err) {
+        console.error(`[Schema Registry] Failed to delete collection '${collectionName}':`, err.message || err);
+        throw err;
+    }
+}
 
 /**
  * 伺服器啟動時，從 DB 讀取所有註冊的 Schema 並重新建立 Model
