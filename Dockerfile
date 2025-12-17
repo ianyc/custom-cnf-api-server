@@ -24,7 +24,7 @@ COPY . .
 FROM node:20-alpine AS final
 
 # 設定環境變數
-ENV NODE_ENV production
+ENV NODE_ENV=production
 
 # 設定工作目錄
 WORKDIR /usr/src/app
