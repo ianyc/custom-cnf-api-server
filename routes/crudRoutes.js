@@ -1,19 +1,37 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import { getModel } from '../models/modelRegistry.js';
 
 const crudRoutes = express.Router();
 
 // Middleware: 檢查 Model 是否存在
-const checkModelExistence = (req, res, next) => {
+const checkModelExistence = async (req, res, next) => {
     const { collectionName } = req.params;
     
-    const DynamicModel = getModel(collectionName);
+    let DynamicModel = getModel(collectionName);
 
     if (!DynamicModel) {
-        // Model/Collection 不存在時，立即回傳錯誤
-        return res.status(400).json({ 
-            message: `錯誤: 找不到Collection '${collectionName}'。請先呼叫 /api/${collectionName}/create 建立。` 
-        });
+        // 若 modelRegistry 沒有，檢查 mongoose.models（可能已由其他地方註冊）
+        if (mongoose.models && mongoose.models[collectionName]) {
+            DynamicModel = mongoose.models[collectionName];
+        } else {
+            // 嘗試檢查 MongoDB 是否已存在該 collection
+            try {
+                const collections = await mongoose.connection.db.listCollections({ name: collectionName }).toArray();
+                if (collections.length > 0) {
+                    // 建立一個寬鬆的動態 schema，並指定 collection name，避免修改 DB 結構
+                    const dynamicSchema = new mongoose.Schema({}, { strict: false });
+                    DynamicModel = mongoose.model(collectionName, dynamicSchema, collectionName);
+                } else {
+                    // Model/Collection 不存在時，立即回傳錯誤
+                    return res.status(400).json({ 
+                        message: `錯誤: 找不到Collection '${collectionName}'。請先呼叫 /api/${collectionName}/create 建立。` 
+                    });
+                }
+            } catch (err) {
+                return res.status(500).json({ message: `檢查 collection 時發生錯誤: ${err.message}` });
+            }
+        }
     }
 
     req.DynamicModel = DynamicModel; // 將 Model 附加到請求物件上，供後續路由使用
